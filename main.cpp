@@ -34,7 +34,6 @@ unsigned char** unpackImage(string filename) {
 			_dataset[i] = new unsigned char[image_size];
 			file.read((char*)_dataset[i], image_size);
 		}
-		cout << "success";
 		return _dataset;
 	}
 	else {
@@ -164,7 +163,7 @@ public:
 
 	//goal is to get matrix of partial derivatives responding to changes given a single training piece.
 	//THIS IS THE FINAL LAYER, THUS HAS ASSUMPTIONS (like goalvec) ONLY RELEVANT IN FINAL LAYER
-	void backpropEnd(NeuronLayer* preceding, Eigen::VectorXd goalVec) {
+	void backpropEnd(NeuronLayer* preceding, Eigen::VectorXd* goalVec) {
 
 		//should go layer by layer, begining with last layer (doesnt matter tho cause I made a layer class)
 
@@ -181,10 +180,10 @@ public:
 				//previous value of a^(L-1)_k*sigmoid approx(sum)*2*(current val - goal val)
 				//NOTE temp*(1-temp) approximates derivative of sigmoid
 				double temp = sigApprox(unscaledSum(j)); 
-				wprime(j, k) = (*preceding).currentV(k) * temp * (1 - temp) * 2 * (currentV(j) - goalVec(j));
+				wprime(j, k) = (*preceding).currentV(k) * temp * (1 - temp) * 2 * (currentV(j) - (*goalVec)(j));
 			}
 			double temp = sigApprox(unscaledSum(j));
-			biasprime(j) = temp * (1 - temp) * 2 * (currentV(j) - goalVec(j));
+			biasprime(j) = temp * (1 - temp) * 2 * (currentV(j) - (*goalVec)(j));
 		}
 
 		//now computing the partials of the previous layer (partial C_0 / partial a^(L-1)_k)
@@ -194,7 +193,7 @@ public:
 			double sum = 0;
 			for (int i = 0; i < numN; i++) {
 				double temp = sigApprox(unscaledSum(i));
-				sum += weights(i, k) * (temp) * (1 - temp) * 2 * (currentV(i) - goalVec(i));
+				sum += weights(i, k) * (temp) * (1 - temp) * 2 * (currentV(i) - (*goalVec)(i));
 			}
 			partialPrev(k) = sum;
 		}
@@ -259,50 +258,103 @@ int main() {
 	int current_num = 130;
 	unsigned char** image_data_set = unpackImage("data/train-images.idx3-ubyte");
 	unsigned char* label_data_set = unpackLabel("data/train-labels.idx1-ubyte");
-	cout << displayImageAndLabel(current_num, image_data_set, label_data_set);//displaying example 130th image in training set
 
-	//attempting to initialize neural network
+	//attempting to initialize neural network (using 3 layers cause it sucked on two)
 	int layer1 = 10; //ten neurons for final layer one
-	int layer2 = 10; //ten neurons for second to last layer
+	int layer2 = 16; //sixteen neurons for second to last layer
+	int layer3 = 16; //sixteen neurons for third to last layer
+
+	NeuronLayer* three = new NeuronLayer(&layer3, &size_images);
+	NeuronLayer* two = new NeuronLayer(&layer2, &layer3);
+	NeuronLayer* one = new NeuronLayer(&layer1, &layer2);
+
+	int trainBatch = 128;
+	int trainings = 400;
+	for (int i = 0; i < trainings; i++) {
+		//THIS COULD BE THE ISSUE IF THERE EXISTS ERRORS (also speed up here prolly)
+		Eigen::MatrixXd weightPartialAvgLayer3(16, 784);
+		weightPartialAvgLayer3 = weightPartialAvgLayer3.Zero(16, 784);
+		Eigen::MatrixXd weightPartialAvgLayer2(16, 16);
+		weightPartialAvgLayer2 = weightPartialAvgLayer2.Zero(16, 16);
+		Eigen::MatrixXd weightPartialAvgLayer1(10, 16);//numN then numPrev
+		weightPartialAvgLayer1 = weightPartialAvgLayer1.Zero(10, 16);
+		Eigen::VectorXd biasPartialAvgLayer3(16);
+		biasPartialAvgLayer3 = biasPartialAvgLayer3.Zero(16);
+		Eigen::VectorXd biasPartialAvgLayer2(16);
+		biasPartialAvgLayer2 = biasPartialAvgLayer2.Zero(16);
+		Eigen::VectorXd biasPartialAvgLayer1(10);
+		biasPartialAvgLayer1 = biasPartialAvgLayer1.Zero(10);
 
 
-	//GOAL VECTOR FOR EVENTUAL BACKPROPOGATION USE
-	Eigen::VectorXd goal(10);
-	for (int i = 0; i < 10; i++) {
-		goal(i) = i == (int)label_data_set[current_num] ? 1 : 0;//default to negative one first except if goal reading
-	}
-
-	NeuronLayer* base = new NeuronLayer(image_data_set[0], &size_images);//based upon the first image
-	NeuronLayer* one = new NeuronLayer(&layer1, &size_images);
-	NeuronLayer* two = new NeuronLayer(&layer2, &layer1);
-
-	//cout << base->currentV << endl;
-	cout << one->currentV << endl;
+		for (int j = 0; j < trainBatch; j++) {
+			//goal is to:
+			//1) grab a photo
+			//2) classify photo
+			//3) backpropogate on photo
+			//4) save weights and biases
+			//step 0 is make goal vector
+			Eigen::VectorXd goal(10);
+			for (int k = 0; k < 10; k++) {
+				goal(k) = k == (int)label_data_set[i*trainBatch + j] ? 1 : 0;//default to negative one first except if goal reading
+			}
+			//then on to steps 1 onwards
 	
-	//test doing the matrix multiplication
-	one->computeValues(base);
-	cout << endl << one->currentV << endl;
+			NeuronLayer* base = new NeuronLayer(image_data_set[i*trainBatch + j], &size_images);//based upon (trainBatch*i + j)th image
+			three->computeValues(base);
+			two->computeValues(three);//again compute values
+			one->computeValues(two);//just compute values
+			//could print current error here if wanted
 
-	//test doing matrix mult for second layer
-	cout << "SECOND LAYER" << endl;
-	two->computeValues(one);
-	cout << endl << two->currentV << endl;
+			//steps 1 and 2 done, now need to backprop and save weights n biases
+			one->backpropEnd(two, &goal);
+			two->backprop(three, &one->bpPartials);
+			three->backprop(base, &two->bpPartials);
 
-	//compute the sum squared error
-	cout << endl << two->cost((int)label_data_set[current_num]);
-
-
-	//REMEMEMMMMBERRR THAT IT IS THE NEGATIVE DIFFFERENCE OF THE GRADIENT, NOT THE GRADIENT ITSELF
-
-	//as of now I should have all the steps necessary minus the negative gradient stuff to make a neural network.
-
-	//BACKPROPOGATION ATTEMPTS
-	cout << endl << "------------------------" << endl;
-	two->backpropEnd(one, goal); //BIASES LOOK GOOD WOO
-	cout << endl << endl << two->backPropBias;
-	cout << endl << "------layertwo-------" << endl;
-	one->backprop(base, &two->bpPartials);
-	cout << endl << one->backPropBias << endl;
-
-	//i will now copy my code and make an attempt at training.
+			//remember we will NEGATE these partials in the end (negative gradient)
+			weightPartialAvgLayer1 = weightPartialAvgLayer1 + one->backPropWeights;
+			weightPartialAvgLayer2 = weightPartialAvgLayer2 + two->backPropWeights;
+			weightPartialAvgLayer3 = weightPartialAvgLayer3 + three->backPropWeights;
+			biasPartialAvgLayer1 = biasPartialAvgLayer1 + one->backPropBias;
+			biasPartialAvgLayer2 = biasPartialAvgLayer2 + two->backPropBias;
+			biasPartialAvgLayer3 = biasPartialAvgLayer3 + three->backPropBias;
+			//cout << endl << biasPartialAvgLayer1 << endl << biasPartialAvgLayer2 << endl << biasPartialAvgLayer3 << endl << "done ";
+			//cout << (int)label_data_set[i * trainBatch + j] << endl;
+			//cout <<goal << endl;
+		}
+		//now take average and subtract (stochastic method)
+		one->weights = one->weights - (1.0 / trainBatch) * weightPartialAvgLayer1;
+		two->weights = two->weights - (1.0 / trainBatch) * weightPartialAvgLayer2;
+		three->weights = three->weights - (1.0 / trainBatch) * weightPartialAvgLayer3;
+		one->biases = one->biases - (1.0 / trainBatch) * biasPartialAvgLayer1;
+		two->biases = two->biases - (1.0 / trainBatch) * biasPartialAvgLayer2;
+		three->biases = three->biases - (1.0 / trainBatch) * biasPartialAvgLayer3;
+		cout << i << "/" << trainings << endl;
+	}
+	//this is effectivley training the neural network via backpropogation stochastically modeling (i think thats the word) the gradient of the cost function
+	
+	//TESTING NEURAL NETWORK
+	while (true){
+		int test_num = 0;
+		cout << endl << "test NN on image: " << endl;
+		cin >> test_num;
+		cout << displayImageAndLabel(test_num, image_data_set, label_data_set);
+	//what neural network believes
+		NeuronLayer* base = new NeuronLayer(image_data_set[test_num], &size_images);//change base to reflect new number
+		three->computeValues(base);//just compute values
+		two->computeValues(three);//again compute values
+		one->computeValues(two);
+		//finally output values that neural network feels
+		//values below
+		cout << one->currentV;
+		int max = 0;
+		for (int i = 1; i < 10; i++) {
+			max = one->currentV(i) > one->currentV(max) ? i : max;
+		}
+		int secondmax = max == 0 ? 1 : 0;
+		for (int i = 0; i < 10; i++) {
+			secondmax = ((one->currentV(i) > one->currentV(secondmax)) && max != i) ? i : secondmax;
+		}
+		cout << endl << "Best Guess: " << max << " Second Best: " << secondmax;
+	}
+	
 }
