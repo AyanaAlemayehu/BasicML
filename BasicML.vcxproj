@@ -19,9 +19,14 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="jpgd.h" />
+    <ClInclude Include="jpgd_idct.h" />
+    <ClInclude Include="jpge.h" />
     <ClInclude Include="main.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="jpgd.cpp" />
+    <ClCompile Include="jpge.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

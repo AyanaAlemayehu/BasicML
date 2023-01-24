@@ -5,3 +5,4 @@
 #include <iostream>
 #include <fstream>
 #include <Eigen/Dense>
+#define _CRT_SECURE_NO_WARNINGS

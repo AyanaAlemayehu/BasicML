@@ -1,9 +1,12 @@
 #include "main.h"
+#include "jpgd.h"
+#include "jpge.h"
 
 using namespace std;
 
 const int IMAGE_HEIGHT = 28;
 const int IMAGE_WIDTH = 28;
+const bool INVERT_IMAGE = false;
 
 void reverseInt(int* input) {//reverses the input
 	unsigned char c1, c2, c3, c4;
@@ -252,6 +255,12 @@ public:
 
 };
 
+//stolen class for image resampling:
+
+
+
+
+
 int main() {
 	int num_images = 60000;//not gonna find out why sizeof doesnt work rn dont feel like it just gonna hardcode it right here
 	int size_images = 784;
@@ -268,8 +277,8 @@ int main() {
 	NeuronLayer* two = new NeuronLayer(&layer2, &layer3);
 	NeuronLayer* one = new NeuronLayer(&layer1, &layer2);
 
-	int trainBatch = 128;
-	int trainings = 400;
+	int trainBatch = 20;
+	int trainings = 3000;
 	for (int i = 0; i < trainings; i++) {
 		//THIS COULD BE THE ISSUE IF THERE EXISTS ERRORS (also speed up here prolly)
 		Eigen::MatrixXd weightPartialAvgLayer3(16, 784);
@@ -335,11 +344,44 @@ int main() {
 	//TESTING NEURAL NETWORK
 	while (true){
 		int test_num = 0;
-		cout << endl << "test NN on image: " << endl;
+		cout << endl << "Upload New Image to Directory: " << endl;
 		cin >> test_num;
-		cout << displayImageAndLabel(test_num, image_data_set, label_data_set);
 	//what neural network believes
-		NeuronLayer* base = new NeuronLayer(image_data_set[test_num], &size_images);//change base to reflect new number
+		//NeuronLayer* base = new NeuronLayer(image_data_set[test_num], &size_images);//change base to reflect new number
+		
+	    //trying to import a jpg into a idx image
+		unsigned char *bruh;
+		int twidth;
+		int theight;
+		int actualcomps;
+		bruh = jpgd::decompress_jpeg_image_from_file("dookei.JPG", &twidth, &theight, &actualcomps, 1);
+		//cout << endl << "done " << twidth << " sds " << theight << " sds  " << actualcomps;
+		
+		int newx, newy;
+
+		//now downscaling to 28 x 28
+		unsigned char downscaledoutput[784] = {};
+		for (int i = 0; i < theight; i++) {
+			for (int j = 0; j < twidth; j++) {
+				newx = ((j * 28.0) / twidth);
+				newy = ((i * 28.0) / theight);
+				if (INVERT_IMAGE) {
+					downscaledoutput[newy * 28 + newx] = 255 - bruh[i * twidth + j]; //<- SWAP THESE AROUND IF IMAGE IS ROTATED FOR SUM REASON (newx and newy i mean)
+				}
+				else {
+					downscaledoutput[newy * 28 + newx] = bruh[i * twidth + j]; //<- SWAP THESE AROUND IF IMAGE IS ROTATED FOR SUM REASON (newx and newy i mean)
+				}
+				}
+		}
+
+		//NOW OVERRIDING WHAT THE NN IS LOOKING AT
+		jpge::compress_image_to_jpeg_file("changed.jpg", 28, 28, 1, downscaledoutput);//<-- this is just to check what the image is outputting
+		NeuronLayer* base = new NeuronLayer(downscaledoutput, &size_images);
+		unsigned char** fakedataset = new unsigned char* [1];
+		fakedataset[0] = downscaledoutput;
+
+		cout << displayImageAndLabel(0, fakedataset, label_data_set);
+
 		three->computeValues(base);//just compute values
 		two->computeValues(three);//again compute values
 		one->computeValues(two);
